@@ -1,5 +1,0 @@
-(library
- (name devkit)
- (libraries extlib pcre zip unix str)
- (ocamlc_flags (:standard -w -3-6-26-27-29-32-33-39 -alert -deprecated))
- (ocamlopt_flags (:standard -w -3-6-26-27-29-32-33-39 -alert -deprecated)))

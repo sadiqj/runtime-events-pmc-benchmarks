@@ -20,7 +20,7 @@ PIN_CPU=${2:-0}
 RESULTS_DIR="$ROOT/results/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
-BENCH_DIR="$ROOT/devkit_mini/_build/default/bench"
+BENCH_DIR="$ROOT/oxmono/_build/default/benchmarks/ahrefs-devkit"
 CONSUMER="$ROOT/consumer/_build/default/pmc_consumer.exe"
 
 # Verify executables exist
