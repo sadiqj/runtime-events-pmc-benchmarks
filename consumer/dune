@@ -1,0 +1,3 @@
+(executable
+ (name pmc_consumer)
+ (libraries runtime_events stdlib_upstream_compatible unix))

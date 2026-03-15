@@ -1,0 +1,8 @@
+results/
+_build/
+_install/
+*.events
+*.byte
+*.native
+_opam/
+sandmark/runs_dune.inc

@@ -1,0 +1,10 @@
+[submodule "oxcaml"]
+	path = oxcaml
+	url = git@github.com:sadiqj/oxcaml.git
+	branch = runtime_events_pmc
+[submodule "sandmark"]
+	path = sandmark
+	url = https://github.com/ocaml-bench/sandmark.git
+[submodule "oxmono"]
+	path = oxmono
+	url = https://github.com/avsm/oxmono.git
