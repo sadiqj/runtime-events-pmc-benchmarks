@@ -6,9 +6,10 @@ set -euo pipefail
 # Pins to P-core CPU 0 for consistent PMC on Alder Lake hybrid CPUs.
 # Collects 6 counters in a single batch (well within P-core limit of ~8).
 #
-# Usage: ./scripts/run_benchmarks.sh [iterations] [cpu]
+# Usage: ./scripts/run_benchmarks.sh [iterations] [cpu] [rounds]
 #   iterations: number of runs per benchmark (default: 3)
 #   cpu: CPU core to pin to (default: 0, should be a P-core)
+#   rounds: how many times each benchmark repeats internally (default: 1)
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -16,6 +17,7 @@ BENCHMARKS=(htmlStream_bench stre_bench network_bench gzip_bench)
 COUNTERS="r00c0,r003c,r3f24,r412e,r11d0,r12d0"
 ITERATIONS=${1:-3}
 PIN_CPU=${2:-0}
+export BENCH_ROUNDS=${3:-1}
 
 RESULTS_DIR="$ROOT/results/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"

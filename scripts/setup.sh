@@ -33,7 +33,7 @@ eval $(opam env --switch=oxcaml-pmc)
 if ! opam pin list 2>/dev/null | grep -q runtime_events_pmc; then
   echo "Pinning to runtime_events_pmc for perf counter support..."
   opam pin ocaml-variants \
-    git+https://github.com/sadiqj/oxcaml.git#runtime_events_pmc_rebased --yes
+    git+https://github.com/sadiqj/oxcaml.git#runtime_events_pmc --yes
   eval $(opam env --switch=oxcaml-pmc)
 fi
 

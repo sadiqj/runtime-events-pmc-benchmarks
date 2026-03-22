@@ -47,11 +47,14 @@ python3 scripts/analyze.py results/<dir>/ --csv --plot
 ## Structure
 
 ```
-consumer/           PMC data collector (OCaml, attaches to benchmark process)
-scripts/setup.sh    Build oxcaml, create opam switch, install deps
-scripts/run_benchmarks.sh   Run benchmarks with PMC collection
-scripts/analyze.py  Analyze JSONL results, produce tables & charts
-oxcaml/             Submodule: sadiqj/oxcaml @ runtime_events_pmc
-sandmark/           Submodule: ocaml-bench/sandmark @ pr-480
-oxmono/             Submodule: avsm/oxmono (for patching packages)
+consumer/                       PMC data collector (OCaml, attaches to benchmark process)
+scripts/setup.sh                Build oxcaml, create opam switch, install deps
+scripts/run_benchmarks.sh       Run benchmarks with PMC collection
+scripts/run_overhead.sh         Overhead measurement (baseline vs events vs PMC)
+scripts/report.py               Basic JSONL analysis
+scripts/report_by_phase.py      Per-phase aggregate report
+scripts/report_targets.py       Optimisation target analysis (saveable cycles, memory boundedness)
+scripts/report_targets_by_bench.py  Per-benchmark targets with cross-benchmark comparison
+scripts/report_overhead.py      Overhead statistical analysis
+oxmono/                         Submodule: avsm/oxmono (devkit benchmarks + patched packages)
 ```

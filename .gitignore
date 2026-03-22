@@ -6,3 +6,5 @@ _install/
 *.native
 _opam/
 sandmark/runs_dune.inc
+__pycache__/
+blog-post.md
