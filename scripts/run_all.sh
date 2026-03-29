@@ -1,0 +1,120 @@
+#!/bin/bash
+set -euo pipefail
+
+# run_all.sh — Run benchmarks, overhead measurement, and generate all reports.
+#
+# Usage: ./scripts/run_all.sh [options]
+#
+# Options:
+#   -i ITERATIONS   Benchmark iterations (default: 3)
+#   -o OVERHEAD_ITERATIONS  Overhead iterations (default: 20)
+#   -c CPU          CPU core to pin to (default: 0, should be a P-core)
+#   -r ROUNDS       Internal rounds per benchmark (default: 1)
+#   -d OUTPUT_DIR   Output directory (default: output/)
+#   -s              Skip overhead measurement (much faster)
+#   -h              Show this help
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+ITERATIONS=3
+OVERHEAD_ITERATIONS=20
+PIN_CPU=0
+ROUNDS=1
+OUTPUT_DIR="$ROOT/output"
+SKIP_OVERHEAD=false
+
+usage() {
+  sed -n '3,/^$/s/^# //p' "$0"
+  exit 0
+}
+
+while getopts "i:o:c:r:d:sh" opt; do
+  case $opt in
+    i) ITERATIONS=$OPTARG ;;
+    o) OVERHEAD_ITERATIONS=$OPTARG ;;
+    c) PIN_CPU=$OPTARG ;;
+    r) ROUNDS=$OPTARG ;;
+    d) OUTPUT_DIR=$OPTARG ;;
+    s) SKIP_OVERHEAD=true ;;
+    h) usage ;;
+    *) usage ;;
+  esac
+done
+
+echo "=== PMC Full Run ==="
+echo "Benchmark iterations: $ITERATIONS"
+echo "Overhead iterations:  $OVERHEAD_ITERATIONS (skip=$SKIP_OVERHEAD)"
+echo "Pinned to CPU:        $PIN_CPU"
+echo "Output:               $OUTPUT_DIR"
+echo ""
+
+mkdir -p "$OUTPUT_DIR"
+
+# --- Run benchmarks ---
+echo ">>> Running benchmarks..."
+"$ROOT/scripts/run_benchmarks.sh" "$ITERATIONS" "$PIN_CPU" "$ROUNDS"
+
+# Find the latest benchmark results directory
+BENCH_DIR=$(ls -dt "$ROOT/results"/20* 2>/dev/null | head -1)
+if [[ -z "$BENCH_DIR" ]]; then
+  echo "ERROR: No benchmark results found in results/"
+  exit 1
+fi
+echo "Benchmark results: $BENCH_DIR"
+
+# --- Run overhead measurement ---
+OVERHEAD_DIR=""
+if [[ "$SKIP_OVERHEAD" == "false" ]]; then
+  echo ""
+  echo ">>> Running overhead measurement..."
+  "$ROOT/scripts/run_overhead.sh" "$OVERHEAD_ITERATIONS" "$PIN_CPU" "$ROUNDS"
+
+  OVERHEAD_DIR=$(ls -dt "$ROOT/results"/overhead_* 2>/dev/null | head -1)
+  echo "Overhead results: $OVERHEAD_DIR"
+fi
+
+# --- Generate reports ---
+echo ""
+echo ">>> Generating reports..."
+
+python3 "$ROOT/scripts/report_cross_phase.py" "$BENCH_DIR" \
+  "$OUTPUT_DIR/cross_phase_analysis.md"
+
+python3 "$ROOT/scripts/report_by_phase.py" "$BENCH_DIR" \
+  "$OUTPUT_DIR/report_by_phase.html"
+
+python3 "$ROOT/scripts/report_targets.py" "$BENCH_DIR" \
+  "$OUTPUT_DIR/report_targets.html"
+
+python3 "$ROOT/scripts/report_targets_by_bench.py" "$BENCH_DIR" \
+  "$OUTPUT_DIR/report_targets_by_bench.html"
+
+if [[ -n "$OVERHEAD_DIR" ]]; then
+  python3 "$ROOT/scripts/report_overhead.py" "$OVERHEAD_DIR" \
+    "$OUTPUT_DIR/report_overhead.html"
+fi
+
+# --- Copy raw data ---
+BENCH_BASENAME=$(basename "$BENCH_DIR")
+cp -r "$BENCH_DIR" "$OUTPUT_DIR/benchmark_$BENCH_BASENAME"
+
+if [[ -n "$OVERHEAD_DIR" ]]; then
+  OVERHEAD_BASENAME=$(basename "$OVERHEAD_DIR")
+  cp -r "$OVERHEAD_DIR" "$OUTPUT_DIR/$OVERHEAD_BASENAME"
+fi
+
+echo ""
+echo "=== Done ==="
+echo "Reports in: $OUTPUT_DIR"
+echo ""
+echo "  cross_phase_analysis.md        — All phases ranked by IPC, cache, memory boundedness, variability, saveable cycles"
+echo "  report_by_phase.html           — Phase performance summary (HTML)"
+echo "  report_targets.html            — Optimisation targets: saveable cycles, memory boundedness, variability (HTML)"
+echo "  report_targets_by_bench.html   — Same, broken down per benchmark (HTML)"
+if [[ -n "$OVERHEAD_DIR" ]]; then
+  echo "  report_overhead.html           — Overhead statistical analysis (HTML)"
+fi
+echo "  benchmark_$BENCH_BASENAME/     — Raw JSONL span data"
+if [[ -n "$OVERHEAD_DIR" ]]; then
+  echo "  $OVERHEAD_BASENAME/            — Raw overhead timing data"
+fi

@@ -1,4 +1,5 @@
 results/
+output/
 _build/
 _install/
 *.events
