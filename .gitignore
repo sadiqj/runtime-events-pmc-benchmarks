@@ -6,6 +6,7 @@ _install/
 *.byte
 *.native
 _opam/
+.venv/
 sandmark/runs_dune.inc
 __pycache__/
 blog-post.md

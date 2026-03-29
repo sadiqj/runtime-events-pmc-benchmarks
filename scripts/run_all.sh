@@ -94,6 +94,24 @@ if [[ -n "$OVERHEAD_DIR" ]]; then
     "$OUTPUT_DIR/report_overhead.html"
 fi
 
+# --- Generate charts ---
+VENV_PYTHON="$ROOT/.venv/bin/python3"
+if [[ -x "$VENV_PYTHON" ]]; then
+  echo ""
+  echo ">>> Generating charts..."
+  PLOT_ARGS=("$BENCH_DIR")
+  if [[ -n "$OVERHEAD_DIR" ]]; then
+    PLOT_ARGS+=("$OVERHEAD_DIR")
+  else
+    PLOT_ARGS+=("")
+  fi
+  PLOT_ARGS+=("$OUTPUT_DIR")
+  "$VENV_PYTHON" "$ROOT/scripts/plot_results.py" "${PLOT_ARGS[@]}"
+else
+  echo ""
+  echo ">>> Skipping charts (.venv not found — run: python3 -m venv .venv && .venv/bin/pip install matplotlib)"
+fi
+
 # --- Copy raw data ---
 BENCH_BASENAME=$(basename "$BENCH_DIR")
 cp -r "$BENCH_DIR" "$OUTPUT_DIR/benchmark_$BENCH_BASENAME"
@@ -113,6 +131,9 @@ echo "  report_targets.html            — Optimisation targets: saveable cycles
 echo "  report_targets_by_bench.html   — Same, broken down per benchmark (HTML)"
 if [[ -n "$OVERHEAD_DIR" ]]; then
   echo "  report_overhead.html           — Overhead statistical analysis (HTML)"
+fi
+if [[ -x "$VENV_PYTHON" ]]; then
+  echo "  *.png                          — Charts (IPC box plots, memory boundedness, scatter, spread, app spans, overhead)"
 fi
 echo "  benchmark_$BENCH_BASENAME/     — Raw JSONL span data"
 if [[ -n "$OVERHEAD_DIR" ]]; then
