@@ -2,6 +2,9 @@
    Simple CSV consumer — attaches to an OCaml process via runtime_events,
    computes per-span counter deltas, and emits CSV to stdout.
 
+   Counter columns are named by their hex config codes (e.g. 0x00c0)
+   so this works with arbitrary perf counters, not just a fixed set.
+
    Usage: csv_consumer <events_dir> <pid>
 
    Runs until Ctrl-C or the target process exits.
@@ -14,22 +17,21 @@ external[@layout_poly] array_length :
 external[@layout_poly] array_get :
   ('a : any mod separable). local_ 'a array -> int -> 'a = "%array_safe_get"
 
-(* Counter config codes *)
-let config_instructions = 0x00c0L
-let config_cycles       = 0x003cL
-let config_l2_misses    = 0x3f24L
-let config_llc_misses   = 0x412eL
-let config_dtlb_loads   = 0x11d0L
-let config_dtlb_stores  = 0x12d0L
+(* Extract (config, value) pairs from a perf_sample array *)
+let samples_to_list (samples : perf_sample array) : (int64 * int64) list =
+  let n = array_length samples in
+  let acc = ref [] in
+  for i = n - 1 downto 0 do
+    let sample = array_get samples i in
+    let config = Stdlib_upstream_compatible.Int64_u.to_int64 sample.#config in
+    let value = Stdlib_upstream_compatible.Int64_u.to_int64 sample.#value in
+    acc := (config, value) :: !acc
+  done;
+  !acc
 
 type span_begin = {
   ts: int64;
-  instructions: int64;
-  cycles: int64;
-  l2_misses: int64;
-  llc_misses: int64;
-  dtlb_load_misses: int64;
-  dtlb_store_misses: int64;
+  counters: (int64 * int64) list;  (* (config, value) pairs *)
 }
 
 let active_spans : (int * runtime_phase, span_begin) Hashtbl.t =
@@ -38,41 +40,58 @@ let active_spans : (int * runtime_phase, span_begin) Hashtbl.t =
 let active_user_spans : (int * string, span_begin) Hashtbl.t =
   Hashtbl.create 64
 
-let find_counter (samples : perf_sample array) (target_config : int64) : int64 =
-  let n = array_length samples in
-  let result = ref 0L in
-  for i = 0 to n - 1 do
-    let sample = array_get samples i in
-    let config = Stdlib_upstream_compatible.Int64_u.to_int64 sample.#config in
-    let value = Stdlib_upstream_compatible.Int64_u.to_int64 sample.#value in
-    if Int64.equal config target_config then
-      result := value
-  done;
-  !result
+(* Discover counter config codes from the first samples we see.
+   Once set, this determines the CSV column order. *)
+let counter_configs : int64 list ref = ref []
+let header_printed = ref false
 
-let make_span_begin ts (samples : perf_sample array) = {
-  ts = Timestamp.to_int64 ts;
-  instructions = find_counter samples config_instructions;
-  cycles = find_counter samples config_cycles;
-  l2_misses = find_counter samples config_l2_misses;
-  llc_misses = find_counter samples config_llc_misses;
-  dtlb_load_misses = find_counter samples config_dtlb_loads;
-  dtlb_store_misses = find_counter samples config_dtlb_stores;
-}
+let discover_configs (samples : perf_sample array) =
+  if !counter_configs = [] && array_length samples > 0 then begin
+    let n = array_length samples in
+    let configs = ref [] in
+    for i = n - 1 downto 0 do
+      let sample = array_get samples i in
+      let config = Stdlib_upstream_compatible.Int64_u.to_int64 sample.#config in
+      configs := config :: !configs
+    done;
+    counter_configs := !configs
+  end
+
+let print_header () =
+  if not !header_printed then begin
+    Printf.printf "phase,domain,start_ns,end_ns,duration_ns";
+    List.iter (fun c -> Printf.printf ",0x%Lx" c) !counter_configs;
+    Printf.printf "\n";
+    flush stdout;
+    header_printed := true
+  end
+
+let find_value config (pairs : (int64 * int64) list) : int64 =
+  match List.assoc_opt config pairs with
+  | Some v -> v
+  | None -> 0L
+
+let make_span_begin ts (samples : perf_sample array) =
+  discover_configs samples;
+  { ts = Timestamp.to_int64 ts; counters = samples_to_list samples }
 
 let emit_csv phase_name domain_id ts begin_state
     (samples : perf_sample array) =
+  print_header ();
   let end_ts = Timestamp.to_int64 ts in
-  Printf.printf "%s,%d,%Ld,%Ld,%Ld,%Ld,%Ld,%Ld,%Ld,%Ld,%Ld\n"
+  let end_counters = samples_to_list samples in
+  Printf.printf "%s,%d,%Ld,%Ld,%Ld"
     phase_name domain_id
     begin_state.ts end_ts
-    (Int64.sub end_ts begin_state.ts)
-    (Int64.sub (find_counter samples config_instructions) begin_state.instructions)
-    (Int64.sub (find_counter samples config_cycles) begin_state.cycles)
-    (Int64.sub (find_counter samples config_l2_misses) begin_state.l2_misses)
-    (Int64.sub (find_counter samples config_llc_misses) begin_state.llc_misses)
-    (Int64.sub (find_counter samples config_dtlb_loads) begin_state.dtlb_load_misses)
-    (Int64.sub (find_counter samples config_dtlb_stores) begin_state.dtlb_store_misses);
+    (Int64.sub end_ts begin_state.ts);
+  List.iter (fun config ->
+    let delta = Int64.sub
+      (find_value config end_counters)
+      (find_value config begin_state.counters)
+    in
+    Printf.printf ",%Ld" delta
+  ) !counter_configs;
+  Printf.printf "\n";
   flush stdout
 
 let runtime_begin domain_id ts phase (local_ samples : perf_sample array) =
@@ -112,9 +131,6 @@ let () =
     Callbacks.create ~runtime_begin ~runtime_end ()
     |> Callbacks.add_user_event Type.span user_span
   in
-  (* Print CSV header *)
-  Printf.printf "phase,domain,start_ns,end_ns,duration_ns,instructions,cycles,l2_misses,llc_misses,dtlb_load_misses,dtlb_store_misses\n";
-  flush stdout;
   (* Handle Ctrl-C gracefully *)
   let running = Atomic.make true in
   Sys.Safe.set_signal Sys.sigint (Sys.Signal_handle (fun _ ->
@@ -131,4 +147,6 @@ let () =
     if Atomic.get running then
       Unix.sleepf 0.001
   done;
+  (* Print header even if no counters were seen (no PMC runtime) *)
+  print_header ();
   free_cursor cursor
