@@ -32,14 +32,17 @@ external[@layout_poly] array_get :
   ('a : any mod separable). local_ 'a array -> int -> 'a = "%array_safe_get"
 
 (* Known counter config codes (as set via env var) *)
-let config_instructions = 0x00c0L
-let config_cycles       = 0x003cL
-let config_l2_misses    = 0x3f24L
-let config_llc_misses   = 0x412eL
-let config_dtlb_loads   = 0x11d0L
-let config_dtlb_stores  = 0x12d0L
+let config_instructions  = 0x00c0L
+let config_cycles        = 0x003cL
+let config_l2_misses     = 0x3f24L
+let config_llc_misses    = 0x412eL
+let config_dtlb_loads    = 0x11d0L
+let config_dtlb_stores   = 0x12d0L
+(* Top-Down proxy counters *)
+let config_fe_bound      = 0x019cL      (* IDQ_UOPS_NOT_DELIVERED.CORE *)
+let config_stalls_total  = 0x040004a3L  (* CYCLE_ACTIVITY.STALLS_TOTAL *)
+let config_stalls_mem    = 0x140014a3L  (* CYCLE_ACTIVITY.STALLS_MEM_ANY *)
 
-(* Per-span begin state: (timestamp_ns, instructions, cycles, l2, llc, dtlb_ld, dtlb_st) *)
 type span_begin = {
   ts: int64;
   instructions: int64;
@@ -48,6 +51,9 @@ type span_begin = {
   llc_misses: int64;
   dtlb_load_misses: int64;
   dtlb_store_misses: int64;
+  fe_bound: int64;
+  stalls_total: int64;
+  stalls_mem: int64;
 }
 
 (* Key: (domain_id, phase) for runtime spans *)
@@ -79,6 +85,9 @@ let make_span_begin ts (samples : perf_sample array) = {
   llc_misses = find_counter samples config_llc_misses;
   dtlb_load_misses = find_counter samples config_dtlb_loads;
   dtlb_store_misses = find_counter samples config_dtlb_stores;
+  fe_bound = find_counter samples config_fe_bound;
+  stalls_total = find_counter samples config_stalls_total;
+  stalls_mem = find_counter samples config_stalls_mem;
 }
 
 let emit_span_end phase_name domain_id ts begin_state
@@ -97,6 +106,12 @@ let emit_span_end phase_name domain_id ts begin_state
                     begin_state.dtlb_load_misses in
   let d_dtlb_st = Int64.sub (find_counter samples config_dtlb_stores)
                     begin_state.dtlb_store_misses in
+  let d_fe_bound = Int64.sub (find_counter samples config_fe_bound)
+                     begin_state.fe_bound in
+  let d_stalls_total = Int64.sub (find_counter samples config_stalls_total)
+                         begin_state.stalls_total in
+  let d_stalls_mem = Int64.sub (find_counter samples config_stalls_mem)
+                       begin_state.stalls_mem in
   (* Derived metrics *)
   let instr_f = Int64.to_float d_instr in
   let cycles_f = Int64.to_float d_cycles in
@@ -112,21 +127,38 @@ let emit_span_end phase_name domain_id ts begin_state
   let dtlb_st_per_ki = if kinstr > 0.0
                        then Int64.to_float d_dtlb_st /. kinstr
                        else 0.0 in
+  (* Top-down: fe_bound is in slots (6 per cycle on Golden Cove),
+     stalls are in cycles. Normalize to % of total slots/cycles. *)
+  let fe_bound_pct = if cycles_f > 0.0
+    then Int64.to_float d_fe_bound /. (cycles_f *. 6.0) *. 100.0
+    else 0.0 in
+  let stalls_total_pct = if cycles_f > 0.0
+    then Int64.to_float d_stalls_total /. cycles_f *. 100.0
+    else 0.0 in
+  let stalls_mem_pct = if cycles_f > 0.0
+    then Int64.to_float d_stalls_mem /. cycles_f *. 100.0
+    else 0.0 in
   Printf.printf
-    "{\"phase\":\"%s\",\"domain\":%d,\"duration_ns\":%Ld,\
+    "{\"phase\":\"%s\",\"domain\":%d,\
+     \"start_ns\":%Ld,\"end_ns\":%Ld,\"duration_ns\":%Ld,\
      \"instructions\":%Ld,\"cycles\":%Ld,\
      \"ipc\":%.4f,\
      \"l2_misses\":%Ld,\"llc_misses\":%Ld,\
      \"dtlb_load_misses\":%Ld,\"dtlb_store_misses\":%Ld,\
      \"l2_per_kinst\":%.4f,\"llc_per_kinst\":%.4f,\
-     \"dtlb_ld_per_kinst\":%.4f,\"dtlb_st_per_kinst\":%.4f}\n"
-    phase_name domain_id duration_ns
+     \"dtlb_ld_per_kinst\":%.4f,\"dtlb_st_per_kinst\":%.4f,\
+     \"fe_bound_slots\":%Ld,\"stalls_total\":%Ld,\"stalls_mem\":%Ld,\
+     \"fe_bound_pct\":%.2f,\"be_stall_pct\":%.2f,\"be_mem_pct\":%.2f}\n"
+    phase_name domain_id
+    begin_state.ts end_ts duration_ns
     d_instr d_cycles
     ipc
     d_l2 d_llc
     d_dtlb_ld d_dtlb_st
     l2_per_ki llc_per_ki
-    dtlb_ld_per_ki dtlb_st_per_ki;
+    dtlb_ld_per_ki dtlb_st_per_ki
+    d_fe_bound d_stalls_total d_stalls_mem
+    fe_bound_pct stalls_total_pct stalls_mem_pct;
   flush stdout
 
 let runtime_begin domain_id ts phase (local_ samples : perf_sample array) =
