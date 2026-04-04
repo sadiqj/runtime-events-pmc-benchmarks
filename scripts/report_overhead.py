@@ -116,6 +116,13 @@ def generate_report(result_dir):
         with open(meta_path) as f:
             meta = json.load(f)
 
+    # Load verification metadata (if present)
+    verif = None
+    verif_path = os.path.join(result_dir, 'verification.json')
+    if os.path.exists(verif_path):
+        with open(verif_path) as f:
+            verif = json.load(f)
+
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     dirname = os.path.basename(result_dir.rstrip('/'))
 
@@ -163,11 +170,20 @@ def generate_report(result_dir):
   .chart-val {{ font-size: 12px; font-variant-numeric: tabular-nums; }}
   .methodology {{ background: #f8f8f0; border: 1px solid #e0e0d0; border-radius: 4px; padding: 14px 18px; font-size: 12px; color: #555; margin-top: 24px; }}
   .methodology h3 {{ margin: 0 0 8px 0; font-size: 13px; color: #333; }}
+  .verify-ok {{ background: #e8f5e9; border: 1px solid #4caf50; color: #2e7d32; }}
+  .verify-warn {{ background: #fff3e0; border: 1px solid #f57c00; color: #e65100; padding: 10px 16px; border-radius: 4px; margin-bottom: 16px; font-size: 13px; }}
 </style>
 </head><body>
 <h1>Runtime Events Overhead</h1>
 <div class="meta">{dirname} &mdash; generated {ts}</div>
 """)
+
+    if verif is None:
+        h.append('<div class="verify-warn">&#9888; No verification.json found — '
+                 'cannot confirm that events/pmc modes collected their expected data.</div>')
+    elif verif.get('pmc_samples_with_counters', 0) == 0:
+        h.append('<div class="verify-warn">&#9888; Verification recorded 0 PMC samples '
+                 'with non-zero counters — the "pmc" numbers below may be invalid.</div>')
 
     # Summary cards
     iters = meta.get('iterations', '?')
@@ -184,6 +200,13 @@ def generate_report(result_dir):
     h.append(f'<div class="card"><h3>Pinned CPU</h3><div class="val">{cpu}</div></div>')
     h.append(f'<div class="card"><h3>BENCH_ROUNDS</h3><div class="val" style="font-size:14px">{rounds_str}</div></div>')
     h.append(f'<div class="card"><h3>Date</h3><div class="val">{meta.get("date", "?")[:10]}</div></div>')
+    if verif is not None:
+        n_pmc = verif.get('pmc_samples_with_counters', 0)
+        n_total = verif.get('pmc_consumer_lines', 0)
+        card_cls = 'card verify-ok' if n_pmc > 0 else 'card'
+        h.append(f'<div class="{card_cls}"><h3>Verified</h3>'
+                 f'<div class="val" style="font-size:14px">'
+                 f'events &#10003; &nbsp; pmc {n_pmc}/{n_total}</div></div>')
     h.append('</div>')
 
     # Main results table

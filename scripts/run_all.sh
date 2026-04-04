@@ -8,17 +8,17 @@ set -euo pipefail
 # Options:
 #   -i ITERATIONS   Benchmark iterations (default: 3)
 #   -o OVERHEAD_ITERATIONS  Overhead iterations (default: 20)
-#   -c CPU          CPU core to pin to (default: 0, should be a P-core)
 #   -r ROUNDS       Internal rounds per benchmark (default: 1)
 #   -d OUTPUT_DIR   Output directory (default: output/)
 #   -s              Skip overhead measurement (much faster)
 #   -h              Show this help
+#
+# All runs are pinned to CPU 0 (a P-core on hybrid CPUs, valid on any layout).
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ITERATIONS=3
 OVERHEAD_ITERATIONS=20
-PIN_CPU=0
 ROUNDS=1
 OUTPUT_DIR="$ROOT/output"
 SKIP_OVERHEAD=false
@@ -28,11 +28,10 @@ usage() {
   exit 0
 }
 
-while getopts "i:o:c:r:d:sh" opt; do
+while getopts "i:o:r:d:sh" opt; do
   case $opt in
     i) ITERATIONS=$OPTARG ;;
     o) OVERHEAD_ITERATIONS=$OPTARG ;;
-    c) PIN_CPU=$OPTARG ;;
     r) ROUNDS=$OPTARG ;;
     d) OUTPUT_DIR=$OPTARG ;;
     s) SKIP_OVERHEAD=true ;;
@@ -44,7 +43,7 @@ done
 echo "=== PMC Full Run ==="
 echo "Benchmark iterations: $ITERATIONS"
 echo "Overhead iterations:  $OVERHEAD_ITERATIONS (skip=$SKIP_OVERHEAD)"
-echo "Pinned to CPU:        $PIN_CPU"
+echo "Pinned to CPU:        0"
 echo "Output:               $OUTPUT_DIR"
 echo ""
 
@@ -52,7 +51,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # --- Run benchmarks ---
 echo ">>> Running benchmarks..."
-"$ROOT/scripts/run_benchmarks.sh" "$ITERATIONS" "$PIN_CPU" "$ROUNDS"
+"$ROOT/scripts/run_benchmarks.sh" "$ITERATIONS" "$ROUNDS"
 
 # Find the latest benchmark results directory
 BENCH_DIR=$(ls -dt "$ROOT/results"/20* 2>/dev/null | head -1)
@@ -67,7 +66,7 @@ OVERHEAD_DIR=""
 if [[ "$SKIP_OVERHEAD" == "false" ]]; then
   echo ""
   echo ">>> Running overhead measurement..."
-  "$ROOT/scripts/run_overhead.sh" "$OVERHEAD_ITERATIONS" "$PIN_CPU" "$ROUNDS"
+  "$ROOT/scripts/run_overhead.sh" "$OVERHEAD_ITERATIONS" "$ROUNDS"
 
   OVERHEAD_DIR=$(ls -dt "$ROOT/results"/overhead_* 2>/dev/null | head -1)
   echo "Overhead results: $OVERHEAD_DIR"
